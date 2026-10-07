@@ -1,6 +1,6 @@
 # 羽球分組表
 
-4–8 人羽球雙打輪替分組表（單一場地）。線上版：https://freenessmood-beep.github.io/badminton/
+4–8 人羽球雙打輪替分組表（單一場地），附用球數紀錄與每人費用結算。線上版：https://freenessmood-beep.github.io/badminton/
 
 - 搭檔盡量不重複
 - 不連續上場超過 2 場

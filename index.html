@@ -48,6 +48,13 @@ h3{font-size:1.1rem;margin:1em 0 .3em}
 .rules li{margin:.35em 0}
 .small{color:var(--muted);font-size:.95rem}
 .help{margin-top:20px;background:var(--card);border:2px solid var(--line);border-radius:16px;padding:12px 16px}
+.counter{display:flex;align-items:center;gap:12px;background:var(--card);border:2px solid var(--line);border-radius:16px;padding:10px 14px;margin:12px 0}
+.counter .label{flex:1;font-size:1.2rem;font-weight:700}
+.counter button{width:2.4em;height:2.4em;padding:0;font-size:1.3rem;font-weight:700}
+.counter .num{min-width:2em;text-align:center;font-size:1.8rem;font-weight:700}
+.total{background:var(--now);border:3px solid var(--accent);border-radius:16px;padding:16px;margin:16px 0;text-align:center}
+.formula{color:var(--muted);font-size:1.1rem}
+.money{font-size:2.4rem;font-weight:800;margin:.1em 0}
 .help summary{cursor:pointer;font-weight:700;font-size:1.1rem}
 </style>
 </head>
@@ -55,7 +62,8 @@ h3{font-size:1.1rem;margin:1em 0 .3em}
 <main id="app"></main>
 <script>
 const KEY = 'badminton-v1';
-const TOTAL = 50;      // 永遠列出 50 場未打的比賽
+const TOTAL = 20;      // 永遠列出 20 場未打的比賽
+const COURT_FEE = 550 * 2, BALL_FEE = 56; // 場地費、每顆球
 const MAX_PLAYERS = 12;
 
 let S = load();
@@ -63,7 +71,7 @@ let S = load();
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && Array.isArray(s.players)) return s;
+    if (s && Array.isArray(s.players)) { s.upcoming = (s.upcoming || []).slice(0, TOTAL); return s; }
   } catch (e) {}
   return { players: [], history: [], upcoming: [], nextId: 1 };
 }
@@ -244,6 +252,46 @@ function resetAll() {
   document.getElementById('names').value = names;
 }
 
+function changeBalls(d) {
+  S.balls = Math.max(0, (S.balls || 0) + d);
+  commit();
+}
+
+// 人頭預設 = 今天名單上所有人（含中途離開的）
+const defaultHeads = () => new Set(S.players.map(p => p.name)).size;
+const heads = () => S.heads || defaultHeads();
+const perPerson = () => (COURT_FEE + BALL_FEE * (S.balls || 0)) / heads();
+
+function changeHeads(d) {
+  S.heads = Math.max(1, heads() + d);
+  commit();
+}
+
+function endSession() {
+  if (!confirm('比賽結束，開始結算？')) return;
+  S.ended = true;
+  commit();
+  scrollTo(0, 0);
+}
+
+function resumeSession() {
+  S.ended = false;
+  commit();
+}
+
+function summaryText() {
+  const x = S.balls || 0, y = heads();
+  return `🏸 今日結算\n打了 ${S.history.length} 場，用球 ${x} 顆，${y} 人\n` +
+    `(${COURT_FEE} + ${BALL_FEE} × ${x}) ÷ ${y} = ${Math.ceil(perPerson())} 元/人`;
+}
+
+function copySummary() {
+  const t = summaryText();
+  const ok = () => alert('已複製，可以貼到群組');
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(ok, () => prompt('請手動複製', t));
+  else prompt('請手動複製', t);
+}
+
 function commit() { save(); render(); }
 
 // ---------- 畫面 ----------
@@ -259,9 +307,11 @@ const RULES = `
   <p class="small">※ 只有 4–5 人時，每場能休息的人太少，無法完全做到「不連續上場超過 2 場」，會盡量平均分配。</p>
   <h3>怎麼用</h3>
   <ol class="rules">
-    <li>貼上選手名單，按「產生分配表」，會列出接下來 50 場。</li>
+    <li>貼上選手名單，按「產生分配表」，會列出接下來 20 場。</li>
     <li>每打完一場，按「✓ 這場打完了」，就會進到下一場；按錯可以按「↶ 復原」。</li>
     <li>有人中途加入，在上方輸入名字按「＋ 加入」；有人要走，按名字旁的 ✕。正在打的這場不變，後面的場次會自動重新安排。</li>
+    <li>每開一顆新球，按「用球數」的 ＋。</li>
+    <li>打完按最下面的「🏁 比賽結束」，自動算出每人費用：(${COURT_FEE} + ${BALL_FEE} × 用球數) ÷ 人頭。人頭預設是今天名單上所有人（含中途離開的），可以再調整。</li>
     <li>資料存在這支手機的瀏覽器裡，重新整理也不會不見。</li>
   </ol>`;
 
@@ -277,6 +327,34 @@ function render() {
       <div style="height:12px"></div>
       <button class="primary big" onclick="start()">產生分配表</button>
       <details class="help"><summary>規則說明</summary>${RULES}</details>`;
+    return;
+  }
+  if (S.ended) {
+    const x = S.balls || 0, y = heads(), each = perPerson();
+    const played = [...new Set(S.players.map(p => p.name))].map(n => {
+      const pids = S.players.filter(p => p.name === n).map(p => p.id);
+      const g = S.history.filter(h => [...h.a, ...h.b].some(id => pids.includes(id))).length;
+      return `<span class="chip">${esc(n)} <small>${g} 場</small></span>`;
+    }).join('');
+    app.innerHTML = `
+      <h1>🏁 今日結算</h1>
+      <p class="sub">共打了 ${S.history.length} 場</p>
+      <div class="counter"><span class="label">用球數</span>
+        <button onclick="changeBalls(-1)">−</button><span class="num">${x}</span><button onclick="changeBalls(1)">＋</button></div>
+      <div class="counter"><span class="label">人頭</span>
+        <button onclick="changeHeads(-1)">−</button><span class="num">${y}</span><button onclick="changeHeads(1)">＋</button></div>
+      <div class="total">
+        <div class="formula">(${COURT_FEE} + ${BALL_FEE} × ${x}) ÷ ${y}${Number.isInteger(each) ? '' : ' = ' + each.toFixed(1)}</div>
+        <div class="money">每人 ${Math.ceil(each)} 元</div>
+        ${Number.isInteger(each) ? '' : '<div class="small">（小數無條件進位）</div>'}
+      </div>
+      <button class="primary big" onclick="copySummary()">📋 複製結算文字</button>
+      <h2>今日出場</h2>
+      <div class="chips">${played}</div>
+      <div class="tools">
+        <button onclick="resumeSession()">↶ 回到分配表</button>
+        <button class="danger" onclick="resetAll()">全部重來</button>
+      </div>`;
     return;
   }
   const chips = ids.map(id => `
@@ -317,8 +395,11 @@ function render() {
       <button class="primary" onclick="addPlayer()">＋ 加入</button>
     </div>
     ${notes}
+    <div class="counter"><span class="label">用球數</span>
+      <button onclick="changeBalls(-1)">−</button><span class="num">${S.balls || 0}</span><button onclick="changeBalls(1)">＋</button></div>
     ${cards}
     ${!S.upcoming.length && done ? '<button onclick="undo()">↶ 復原上一場</button>' : ''}
+    <button class="primary big" style="margin-top:20px" onclick="endSession()">🏁 比賽結束</button>
     <div class="tools">
       <button onclick="reshuffle()">🔀 重新排列</button>
       <button class="danger" onclick="resetAll()">全部重來</button>
