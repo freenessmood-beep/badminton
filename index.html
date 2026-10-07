@@ -245,6 +245,7 @@ function commit() { save(); render(); }
 // ---------- 畫面 ----------
 
 const RULES = `
+  <h3>排場規則</h3>
   <ul class="rules">
     <li><b>搭檔不重複</b>：盡量讓每個人輪流跟不同的人搭檔，對手也盡量分散。</li>
     <li><b>不連續上場超過 2 場</b>：打完兩場一定會排休息。</li>
@@ -271,8 +272,7 @@ function render() {
       <textarea id="names" placeholder="1. felix&#10;2. Emily&#10;3. Mango&#10;4. Andy"></textarea>
       <div style="height:12px"></div>
       <button class="primary big" onclick="start()">產生分配表</button>
-      <h2>排場規則</h2>
-      ${RULES}`;
+      <details class="help"><summary>規則說明</summary>${RULES}</details>`;
     return;
   }
   const chips = ids.map(id => `
