@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>羽球分組表</title>
+<style>
+:root{--bg:#f5f6f2;--card:#fff;--ink:#1c2220;--muted:#66706b;--line:#dce1dc;--accent:#1f7a4d;--accent-ink:#fff;--now:#e6f4eb;--a:#1d5ea8;--b:#b4432a;--warn:#9a5800;--danger:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#121514;--card:#1c201f;--ink:#eef2ef;--muted:#9aa49f;--line:#333a37;--accent:#43b37a;--accent-ink:#06130c;--now:#183024;--a:#86b8f0;--b:#f2977f;--warn:#f0b35a;--danger:#ff8a80}}
+*{box-sizing:border-box}
+html{font-size:20px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;line-height:1.4}
+main{max-width:760px;margin:0 auto;padding:16px 16px 60px}
+h1{font-size:1.7rem;margin:.3em 0 .2em}
+h2{font-size:1.2rem;margin:1.2em 0 .5em}
+.sub{color:var(--muted);font-size:1rem;margin:0 0 .6em}
+button{font:inherit;cursor:pointer;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--ink);padding:.5em .9em}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700}
+button.big{width:100%;font-size:1.3rem;padding:.7em}
+textarea,input{font:inherit;font-size:1.2rem;width:100%;padding:.5em .6em;border-radius:12px;border:2px solid var(--line);background:var(--card);color:var(--ink)}
+textarea{min-height:9em}
+.row{display:flex;gap:10px;align-items:stretch}
+.row input{flex:1;min-width:0}
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+.chip{display:flex;align-items:center;gap:.4em;background:var(--card);border:2px solid var(--line);border-radius:999px;padding:.25em .3em .25em .8em;font-size:1.15rem}
+.chip small{color:var(--muted);font-size:.85rem}
+.chip button{border:none;background:transparent;color:var(--danger);font-size:1.2rem;padding:0 .35em;line-height:1}
+.note{color:var(--warn);font-size:1rem;margin:.6em 0}
+.match{background:var(--card);border:2px solid var(--line);border-radius:16px;padding:14px 16px;margin:12px 0}
+.match.now{background:var(--now);border-color:var(--accent);border-width:3px}
+.mh{display:flex;justify-content:space-between;align-items:center;font-size:1.05rem;color:var(--muted)}
+.mh .no{font-weight:700;color:var(--ink);font-size:1.2rem}
+.tag{background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:.1em .7em;font-size:.95rem;font-weight:700}
+.teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin:8px 0 4px;text-align:center}
+.team{font-size:1.6rem;font-weight:700;line-height:1.25;word-break:break-all}
+.ta{color:var(--a)}.tb{color:var(--b)}
+.vs{color:var(--muted);font-weight:700;font-size:1rem}
+.rest{color:var(--muted);font-size:1.05rem;text-align:center}
+.match.now .team{font-size:1.9rem}
+.actions{display:flex;gap:10px;margin-top:10px}
+.actions button{flex:1}
+.tools{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px}
+.tools button{flex:1;min-width:140px;font-size:1rem}
+.danger{color:var(--danger)}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const KEY = 'badminton-v1';
+const TOTAL = 50;      // 永遠列出 50 場未打的比賽
+const MAX_PLAYERS = 12;
+
+let S = load();
+
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && Array.isArray(s.players)) return s;
+  } catch (e) {}
+  return { players: [], history: [], upcoming: [], nextId: 1 };
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+const activeIds = () => S.players.filter(p => p.active).map(p => p.id);
+const nameOf = id => (S.players.find(p => p.id === id) || {}).name || '?';
+const pk = (x, y) => (x < y ? x + '|' + y : y + '|' + x);
+const inc = (o, k) => { o[k] = (o[k] || 0) + 1; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------- 排程邏輯 ----------
+
+// 依已打完的場次算出每個人目前的狀態
+function baseState() {
+  const st = { games: {}, play: {}, rest: {}, partner: {}, opp: {}, last: null };
+  for (const p of S.players) { st.games[p.id] = p.base || 0; st.play[p.id] = 0; st.rest[p.id] = 0; }
+  for (const h of S.history) apply(st, h, h.present);
+  return st;
+}
+
+function apply(st, m, ids) {
+  const on = new Set([...m.a, ...m.b]);
+  for (const id of ids) {
+    if (on.has(id)) { st.games[id] = (st.games[id] || 0) + 1; st.play[id] = (st.play[id] || 0) + 1; st.rest[id] = 0; }
+    else { st.rest[id] = (st.rest[id] || 0) + 1; st.play[id] = 0; }
+  }
+  inc(st.partner, pk(m.a[0], m.a[1]));
+  inc(st.partner, pk(m.b[0], m.b[1]));
+  for (const x of m.a) for (const y of m.b) inc(st.opp, pk(x, y));
+  st.last = m;
+}
+
+const clone = st => JSON.parse(JSON.stringify(st));
+
+function candidates(ids) {
+  const out = [], n = ids.length;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++)
+    for (let k = j + 1; k < n; k++) for (let l = k + 1; l < n; l++) {
+      const p = ids[i], q = ids[j], r = ids[k], s = ids[l];
+      out.push({ a: [p, q], b: [r, s] }, { a: [p, r], b: [q, s] }, { a: [p, s], b: [q, r] });
+    }
+  return out;
+}
+
+// 分數越低越好
+function cost(st, m, ids) {
+  const on = new Set([...m.a, ...m.b]);
+  let c = 0;
+  for (const id of ids) {
+    if (on.has(id)) {
+      if (st.play[id] >= 2) c += 1000 * (st.play[id] - 1); // 規則 2：不連續上場超過 2 場
+      c += st.games[id] * 12;            // 場數平均
+    } else if (st.rest[id] >= 2) c += 1000 * (st.rest[id] - 1); // 規則 3：不休息超過 2 場
+  }
+  // 規則 1：搭檔不重複（重複越多次扣越重）
+  const pa = st.partner[pk(m.a[0], m.a[1])] || 0, pb = st.partner[pk(m.b[0], m.b[1])] || 0;
+  c += 40 * (pa * pa + pa + pb * pb + pb);
+  for (const x of m.a) for (const y of m.b) c += 6 * (st.opp[pk(x, y)] || 0);
+  if (st.last) {
+    const L = new Set([...st.last.a, ...st.last.b]);
+    if ([...on].every(x => L.has(x))) c += 30; // 避免同樣 4 人連續兩場
+  }
+  return c;
+}
+
+const validFor = (m, ids) => [...m.a, ...m.b].every(id => ids.includes(id));
+
+// 保留 fixed 這幾場，後面補到 TOTAL 場
+function plan(fixed) {
+  const ids = activeIds();
+  if (ids.length < 4) return [];
+  fixed = fixed.filter(m => validFor(m, ids));
+  const base = baseState();
+  for (const m of fixed) apply(base, m, ids);
+  const need = TOTAL - fixed.length;
+  if (need <= 0) return fixed.slice(0, TOTAL);
+  const cands = candidates(ids);
+  const restarts = need === 1 ? 1 : (ids.length > 8 ? 12 : 40);
+  let best = null, bestC = Infinity;
+  for (let r = 0; r < restarts; r++) {
+    const st = clone(base), seq = [];
+    let tot = 0;
+    for (let g = 0; g < need; g++) {
+      let bm = null, bc = Infinity, braw = 0;
+      for (const m of cands) {
+        const raw = cost(st, m, ids);
+        const c = raw + Math.random() * (r ? 10 : 0.5);
+        if (c < bc) { bc = c; bm = m; braw = raw; }
+      }
+      tot += braw; seq.push(bm); apply(st, bm, ids);
+    }
+    if (tot < bestC) { bestC = tot; best = seq; }
+  }
+  return fixed.concat(best.map(m => ({ a: [...m.a], b: [...m.b] })));
+}
+
+// ---------- 動作 ----------
+
+function parseNames(text) {
+  const seen = new Set();
+  return text.split(/[\s,，、;；]+/).map(s => s.trim()).filter(s => s && !seen.has(s) && seen.add(s));
+}
+
+function start() {
+  const names = parseNames(document.getElementById('names').value);
+  if (names.length < 4) return alert('至少需要 4 位選手');
+  if (names.length > MAX_PLAYERS) return alert('最多 ' + MAX_PLAYERS + ' 位選手');
+  S = { players: names.map((n, i) => ({ id: i + 1, name: n, active: true, base: 0 })), history: [], upcoming: [], nextId: names.length + 1 };
+  S.upcoming = plan([]);
+  commit();
+}
+
+// 進行中的這場若仍有效就保留，後面重排
+function replanKeepingCurrent() {
+  const ids = activeIds();
+  const cur = S.upcoming[0];
+  S.upcoming = plan(cur && validFor(cur, ids) ? [cur] : []);
+}
+
+function finishMatch() {
+  const m = S.upcoming[0];
+  if (!m) return;
+  S.history.push({ a: m.a, b: m.b, present: activeIds() });
+  S.upcoming = plan(S.upcoming.slice(1));
+  commit();
+}
+
+function undo() {
+  const h = S.history.pop();
+  if (!h) return;
+  S.upcoming = plan([{ a: h.a, b: h.b }]);
+  commit();
+}
+
+function addPlayer() {
+  const input = document.getElementById('newName');
+  const names = parseNames(input.value);
+  if (!names.length) return;
+  const st = baseState();
+  const ids = activeIds();
+  // 新加入的人以目前最少場數起算，避免一進來就被連排
+  const base = ids.length ? Math.min(...ids.map(id => st.games[id])) : 0;
+  for (const n of names) {
+    if (S.players.some(p => p.active && p.name === n)) { alert(n + ' 已經在名單裡了'); continue; }
+    if (activeIds().length >= MAX_PLAYERS) { alert('最多 ' + MAX_PLAYERS + ' 位選手'); break; }
+    S.players.push({ id: S.nextId++, name: n, active: true, base });
+  }
+  replanKeepingCurrent();
+  commit();
+}
+
+function removePlayer(id) {
+  if (!confirm('確定讓「' + nameOf(id) + '」退出？')) return;
+  S.players.find(p => p.id === id).active = false;
+  replanKeepingCurrent();
+  commit();
+}
+
+function reshuffle() {
+  if (!confirm('重新排列之後的所有場次？')) return;
+  S.upcoming = plan([]);
+  commit();
+}
+
+function resetAll() {
+  if (!confirm('清除所有選手和紀錄，重新開始？')) return;
+  const names = S.players.filter(p => p.active).map(p => p.name).join('\n');
+  S = { players: [], history: [], upcoming: [], nextId: 1 };
+  commit();
+  document.getElementById('names').value = names;
+}
+
+function commit() { save(); render(); }
+
+// ---------- 畫面 ----------
+
+function render() {
+  const app = document.getElementById('app');
+  const ids = activeIds();
+  if (!S.players.length) {
+    app.innerHTML = `
+      <h1>🏸 羽球分組表</h1>
+      <p class="sub">輸入選手姓名（4–8 人），用換行、空白或逗號分開</p>
+      <textarea id="names" placeholder="小明&#10;小華&#10;小美&#10;阿傑"></textarea>
+      <div style="height:12px"></div>
+      <button class="primary big" onclick="start()">產生分配表</button>`;
+    return;
+  }
+  const chips = ids.map(id => `
+    <span class="chip">${esc(nameOf(id))} <small>${S.history.filter(h => [...h.a, ...h.b].includes(id)).length} 場</small>
+      <button aria-label="退出" title="退出" onclick="removePlayer(${id})">✕</button></span>`).join('');
+  let notes = '';
+  if (ids.length < 4) notes = `<p class="note">目前只有 ${ids.length} 人，至少需要 4 人才能排場。</p>`;
+  else if (ids.length <= 5) notes = `<p class="note">${ids.length} 人時每場最多只有 ${ids.length - 4} 人休息，無法完全避免連續上場超過 2 場，會盡量平均。</p>`;
+
+  const done = S.history.length;
+  const cards = S.upcoming.map((m, i) => {
+    const on = new Set([...m.a, ...m.b]);
+    const rest = ids.filter(id => !on.has(id)).map(nameOf).map(esc).join('、');
+    const now = i === 0;
+    return `
+      <div class="match${now ? ' now' : ''}">
+        <div class="mh"><span class="no">第 ${done + i + 1} 場</span>${now ? '<span class="tag">現在</span>' : ''}</div>
+        <div class="teams">
+          <div class="team ta">${esc(nameOf(m.a[0]))}<br>${esc(nameOf(m.a[1]))}</div>
+          <div class="vs">VS</div>
+          <div class="team tb">${esc(nameOf(m.b[0]))}<br>${esc(nameOf(m.b[1]))}</div>
+        </div>
+        <div class="rest">${rest ? '休息：' + rest : '全員上場'}</div>
+        ${now ? `<div class="actions">
+          ${done ? '<button onclick="undo()">↶ 復原</button>' : ''}
+          <button class="primary" style="flex:3;font-size:1.3rem" onclick="finishMatch()">✓ 這場打完了</button>
+        </div>` : ''}
+      </div>`;
+  }).join('');
+
+  app.innerHTML = `
+    <h1>🏸 羽球分組表</h1>
+    <p class="sub">已打完 ${done} 場 · ${ids.length} 人</p>
+    <div class="chips">${chips}</div>
+    <div style="height:12px"></div>
+    <div class="row">
+      <input id="newName" placeholder="新加入的選手" onkeydown="if(event.key==='Enter')addPlayer()">
+      <button class="primary" onclick="addPlayer()">＋ 加入</button>
+    </div>
+    ${notes}
+    ${cards}
+    ${!S.upcoming.length && done ? '<button onclick="undo()">↶ 復原上一場</button>' : ''}
+    <div class="tools">
+      <button onclick="reshuffle()">🔀 重新排列</button>
+      <button class="danger" onclick="resetAll()">全部重來</button>
+    </div>`;
+}
+
+if (typeof document !== 'undefined') render();
+</script>
+</body>
+</html>
