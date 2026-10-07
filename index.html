@@ -165,9 +165,13 @@ function plan(fixed) {
 
 function parseNames(text) {
   const seen = new Set();
+  const numbered = /^\s*\d+\s*(?:[.、)）:：]\s*|\s+)/;
+  let lines = text.split(/[\n\r]+/);
+  // 接龍格式：只要有編號的行，就忽略沒編號的標題／備註
+  if (lines.some(l => numbered.test(l))) lines = lines.filter(l => numbered.test(l));
   // 一行一位（或逗號分隔），去掉前面的「1.」編號；名字中間可以有空白
-  return text.split(/[\n\r,，、;；]+/)
-    .map(s => s.replace(/^\s*\d+\s*(?:[.、)）:：]\s*|\s+)/, '').replace(/\s+/g, ' ').trim())
+  return lines.map(l => l.replace(numbered, '')).join('\n').split(/[\n\r,，、;；]+/)
+    .map(s => s.replace(/\s+/g, ' ').trim())
     .filter(s => s && !seen.has(s) && seen.add(s));
 }
 
