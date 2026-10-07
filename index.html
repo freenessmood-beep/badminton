@@ -158,7 +158,10 @@ function plan(fixed) {
 
 function parseNames(text) {
   const seen = new Set();
-  return text.split(/[\s,，、;；]+/).map(s => s.trim()).filter(s => s && !seen.has(s) && seen.add(s));
+  // 一行一位（或逗號分隔），去掉前面的「1.」編號；名字中間可以有空白
+  return text.split(/[\n\r,，;；]+/)
+    .map(s => s.replace(/^\s*\d+\s*(?:[.、)）:：]\s*|\s+)/, '').replace(/\s+/g, ' ').trim())
+    .filter(s => s && !seen.has(s) && seen.add(s));
 }
 
 function start() {
@@ -240,8 +243,8 @@ function render() {
   if (!S.players.length) {
     app.innerHTML = `
       <h1>🏸 羽球分組表</h1>
-      <p class="sub">輸入選手姓名（4–8 人），用換行、空白或逗號分開</p>
-      <textarea id="names" placeholder="小明&#10;小華&#10;小美&#10;阿傑"></textarea>
+      <p class="sub">貼上選手名單（4–8 人），一行一位，前面的「1.」編號會自動去掉</p>
+      <textarea id="names" placeholder="1. felix&#10;2. Emily&#10;3. Mango&#10;4. Andy"></textarea>
       <div style="height:12px"></div>
       <button class="primary big" onclick="start()">產生分配表</button>`;
     return;
