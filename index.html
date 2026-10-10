@@ -27,10 +27,23 @@ textarea{min-height:9em}
 .chip button{border:none;background:transparent;color:var(--danger);font-size:1.2rem;padding:0 .35em;line-height:1}
 .note{color:var(--warn);font-size:1rem;margin:.6em 0}
 .match{background:var(--card);border:2px solid var(--line);border-radius:16px;padding:14px 16px;margin:12px 0}
-.match.now{background:var(--now);border-color:var(--accent);border-width:3px}
+.match.now{background:var(--now);border-color:var(--accent);border-width:3px;overflow:hidden}
+.match.now .mh{background:var(--accent);color:var(--accent-ink);margin:-14px -16px 8px;padding:10px 16px}
+.match.now .mh .no{color:var(--accent-ink);font-size:1.5rem}
+.match.next{border-style:dashed;background:transparent}
+.match.next .team{font-size:1.3rem}
+.match.flash{animation:flash .9s ease-out}
+@keyframes flash{0%{transform:scale(.97);box-shadow:0 0 0 8px var(--accent)}100%{transform:none;box-shadow:0 0 0 0 transparent}}
+.lastdone{display:flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);border-radius:16px;padding:8px 8px 8px 14px;margin:12px 0;color:var(--muted)}
+.lastdone .txt{flex:1;min-width:0;font-size:1rem}
+.lastdone b{color:var(--accent)}
+.lastdone button{font-size:1rem;flex:none}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--ink);color:var(--bg);padding:.6em 1.2em;border-radius:999px;font-weight:700;text-align:center;pointer-events:none;z-index:9;animation:toast 2.6s forwards}
+@keyframes toast{0%,80%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.match.flash{animation:none}}
 .mh{display:flex;justify-content:space-between;align-items:center;font-size:1.05rem;color:var(--muted)}
 .mh .no{font-weight:700;color:var(--ink);font-size:1.2rem}
-.tag{background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:.1em .7em;font-size:.95rem;font-weight:700}
+.tag{background:var(--accent-ink);color:var(--accent);border-radius:999px;padding:.1em .7em;font-size:.95rem;font-weight:700}
 .teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin:8px 0 4px;text-align:center}
 .team{font-size:1.6rem;font-weight:700;line-height:1.25;word-break:break-all}
 .ta{color:var(--a)}.tb{color:var(--b)}
@@ -65,7 +78,8 @@ h3{font-size:1.1rem;margin:1em 0 .3em}
 <main id="app"></main>
 <script>
 const KEY = 'badminton-v1';
-const TOTAL = 20;      // 永遠列出 20 場未打的比賽
+const TOTAL = 20;      // 預先排好 20 場（讓輪替更平均），畫面只顯示現在和下一場
+const SHOW = 2;
 const FEES_KEY = 'badminton-fees';
 const MAX_PLAYERS = 12;
 
@@ -223,9 +237,15 @@ function replanKeepingCurrent() {
   S.upcoming = plan(cur && validFor(cur, ids) ? [cur] : []);
 }
 
+let lastFinish = 0, flash = false; // flash：剛按完「這場打完了」，下次畫面要提示
+
 function finishMatch() {
   const m = S.upcoming[0];
   if (!m) return;
+  // 防止手滑連按兩下，一次跳過兩場
+  if (Date.now() - lastFinish < 1500) return;
+  lastFinish = Date.now();
+  flash = true;
   S.history.push({ a: m.a, b: m.b, present: activeIds() });
   S.upcoming = plan(S.upcoming.slice(1));
   commit();
@@ -340,8 +360,8 @@ const RULES = `
   <p class="small">※ 只有 4–5 人時，每場能休息的人太少，無法完全做到「不連續上場超過 2 場」，會盡量平均分配。</p>
   <h3>怎麼用</h3>
   <ol class="rules">
-    <li>貼上選手名單，按「產生分配表」，會列出接下來 20 場。</li>
-    <li>每打完一場，按「✓ 這場打完了」，就會進到下一場；按錯可以按「↶ 復原」。</li>
+    <li>貼上選手名單，按「產生分配表」，畫面會顯示<b>現在這場</b>（綠色）和<b>下一場</b>（虛線框）。</li>
+    <li>每打完一場，按「✓ 這場打完了」，下一場就會變成綠色的「進行中」，剛打完的那場會縮小顯示在最上面，標示「✓ 已結束」；按錯可以按旁邊的「↶ 復原」。</li>
     <li>有人中途加入，在上方輸入名字按「＋ 加入」；有人要走，按名字旁的 ✕。正在打的這場不變，後面的場次會自動重新安排。</li>
     <li>每開一顆新球，按「用球數」的 ＋。</li>
     <li>打完按最下面的「🏁 比賽結束」，自動算出每人費用：(場地費 + 每顆球價 × 用球數) ÷ 人頭。人頭預設是今天名單上所有人（含中途離開的），可以再調整；場地費和球價也可以在結算畫面修改，下次會沿用。</li>
@@ -402,29 +422,43 @@ function render() {
   else if (ids.length <= 5) notes = `<p class="note">${ids.length} 人時每場最多只有 ${ids.length - 4} 人休息，無法完全避免連續上場超過 2 場，會盡量平均。</p>`;
 
   const done = S.history.length;
-  const cards = S.upcoming.map((m, i) => {
+  const team = t => t.map(nameOf).map(esc).join('<br>');
+  const cards = S.upcoming.slice(0, SHOW).map((m, i) => {
     const on = new Set([...m.a, ...m.b]);
     const rest = ids.filter(id => !on.has(id)).map(nameOf).map(esc).join('、');
     const now = i === 0;
     return `
-      <div class="match${now ? ' now' : ''}">
-        <div class="mh"><span class="no">第 ${done + i + 1} 場</span>${now ? '<span class="tag">現在</span>' : ''}</div>
+      <div class="match ${now ? 'now' : 'next'}${now && flash ? ' flash' : ''}">
+        <div class="mh">${now
+          ? `<span class="no">▶ 第 ${done + 1} 場</span><span class="tag">進行中</span>`
+          : `<span>下一場 · 第 ${done + 2} 場</span><span>準備</span>`}</div>
         <div class="teams">
-          <div class="team ta">${esc(nameOf(m.a[0]))}<br>${esc(nameOf(m.a[1]))}</div>
+          <div class="team ta">${team(m.a)}</div>
           <div class="vs">VS</div>
-          <div class="team tb">${esc(nameOf(m.b[0]))}<br>${esc(nameOf(m.b[1]))}</div>
+          <div class="team tb">${team(m.b)}</div>
         </div>
         <div class="rest">${rest ? '休息：' + rest : '全員上場'}</div>
         ${now ? `<div class="actions">
-          ${done ? '<button onclick="undo()">↶ 復原</button>' : ''}
-          <button class="primary" style="flex:3;font-size:1.3rem" onclick="finishMatch()">✓ 這場打完了</button>
+          <button class="primary" style="font-size:1.3rem" onclick="finishMatch()">✓ 這場打完了</button>
         </div>` : ''}
       </div>`;
   }).join('');
+  // 剛打完的那場縮小顯示，一眼看出已經按過「這場打完了」
+  const last = S.history[done - 1];
+  const lastRow = last ? `
+    <div class="lastdone">
+      <span class="txt"><b>✓ 第 ${done} 場已結束</b><br>${last.a.map(nameOf).map(esc).join('、')} vs ${last.b.map(nameOf).map(esc).join('、')}</span>
+      <button onclick="undo()">↶ 復原</button>
+    </div>` : '';
+  const toast = flash ? `<div class="toast" role="status">✓ 第 ${done} 場結束，換第 ${done + 1} 場</div>` : '';
+  flash = false;
 
   app.innerHTML = `
     <h1>🏸 羽球分組表</h1>
     <p class="sub">已打完 ${done} 場 · ${ids.length} 人</p>
+    ${lastRow}
+    ${cards}
+    <h2>選手</h2>
     <div class="chips">${chips}</div>
     <div style="height:12px"></div>
     <div class="row">
@@ -434,13 +468,13 @@ function render() {
     ${notes}
     <div class="counter"><span class="label">用球數</span>
       <button aria-label="用球數減一" onclick="changeBalls(-1)">−</button><span class="num">${S.balls || 0}</span><button aria-label="用球數加一" onclick="changeBalls(1)">＋</button></div>
-    ${cards}
     <button class="primary big" style="margin-top:20px" onclick="endSession()">🏁 比賽結束</button>
     <div class="tools">
       <button onclick="reshuffle()">🔀 重新排列</button>
       <button class="danger" onclick="resetAll()">全部重來</button>
     </div>
-    <details class="help"><summary>規則說明</summary>${RULES}</details>`;
+    <details class="help"><summary>規則說明</summary>${RULES}</details>
+    ${toast}`;
 }
 
 if (typeof document !== 'undefined') render();
