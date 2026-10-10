@@ -55,6 +55,9 @@ h3{font-size:1.1rem;margin:1em 0 .3em}
 .total{background:var(--now);border:3px solid var(--accent);border-radius:16px;padding:16px;margin:16px 0;text-align:center}
 .formula{color:var(--muted);font-size:1.1rem}
 .money{font-size:2.4rem;font-weight:800;margin:.1em 0}
+.fees{display:flex;gap:10px;margin:12px 0}
+.fees label{flex:1;min-width:0;color:var(--muted);font-size:1rem}
+.fees input{margin-top:4px}
 .help summary{cursor:pointer;font-weight:700;font-size:1.1rem}
 </style>
 </head>
@@ -63,8 +66,28 @@ h3{font-size:1.1rem;margin:1em 0 .3em}
 <script>
 const KEY = 'badminton-v1';
 const TOTAL = 20;      // 永遠列出 20 場未打的比賽
-const COURT_FEE = 550 * 2, BALL_FEE = 56; // 場地費、每顆球
+const FEES_KEY = 'badminton-fees';
 const MAX_PLAYERS = 12;
+
+// 場地費、每顆球價；可在結算畫面修改，另外存起來，全部重來也會沿用
+let FEES = loadFees();
+
+function loadFees() {
+  try {
+    const f = JSON.parse(localStorage.getItem(FEES_KEY));
+    if (f && f.court >= 0 && f.ball >= 0) return f;
+  } catch (e) {}
+  return { court: 550 * 2, ball: 56 };
+}
+
+function setFee(k, v) {
+  const n = Math.round(Number(v));
+  if (v !== '' && n >= 0) {
+    FEES[k] = n;
+    try { localStorage.setItem(FEES_KEY, JSON.stringify(FEES)); } catch (e) {}
+  }
+  render();
+}
 
 let S = load();
 
@@ -226,14 +249,17 @@ function addPlayer() {
   const ids = activeIds();
   // 新加入的人以目前最少場數起算，避免一進來就被連排
   const base = ids.length ? Math.min(...ids.map(id => st.games[id])) : 0;
+  let changed = false;
   for (const n of names) {
     if (S.players.some(p => p.active && p.name === n)) { alert(n + ' 已經在名單裡了'); continue; }
     if (activeIds().length >= MAX_PLAYERS) { alert('最多 ' + MAX_PLAYERS + ' 位選手'); break; }
     // 退出後再回來的人沿用原本的紀錄（場數、搭檔），場數一樣補到目前最少場數
     const back = S.players.find(p => !p.active && p.name === n);
     if (back) { back.active = true; back.base = (back.base || 0) + Math.max(0, base - st.games[back.id]); }
-    else S.players.push({ id: S.nextId++, name: n, active: true, base });
+    else { S.players.push({ id: S.nextId++, name: n, active: true, base }); delete S.heads; } // 新名字加入，人頭回到預設
+    changed = true;
   }
+  if (!changed) return; // 都是重複的名字，不要打亂後面的場次
   replanKeepingCurrent();
   commit();
 }
@@ -267,7 +293,7 @@ function changeBalls(d) {
 // 人頭預設 = 今天名單上所有人（含中途離開的）
 const defaultHeads = () => new Set(S.players.map(p => p.name)).size;
 const heads = () => S.heads || defaultHeads();
-const perPerson = () => (COURT_FEE + BALL_FEE * (S.balls || 0)) / heads();
+const perPerson = () => (FEES.court + FEES.ball * (S.balls || 0)) / heads();
 
 function changeHeads(d) {
   S.heads = Math.max(1, heads() + d);
@@ -289,7 +315,7 @@ function resumeSession() {
 function summaryText() {
   const x = S.balls || 0, y = heads();
   return `🏸 今日結算\n打了 ${S.history.length} 場，用球 ${x} 顆，${y} 人\n` +
-    `(${COURT_FEE} + ${BALL_FEE} × ${x}) ÷ ${y} = ${Math.ceil(perPerson())} 元/人`;
+    `(${FEES.court} + ${FEES.ball} × ${x}) ÷ ${y} = ${Math.ceil(perPerson())} 元/人`;
 }
 
 function copySummary() {
@@ -307,8 +333,8 @@ const RULES = `
   <h3>排場規則</h3>
   <ul class="rules">
     <li><b>搭檔不重複</b>：盡量讓每個人輪流跟不同的人搭檔，對手也盡量分散。</li>
-    <li><b>不連續上場超過 2 場</b>：打完兩場一定會排休息。</li>
-    <li><b>不連續休息超過 2 場</b>：休息兩場後一定會排上場。</li>
+    <li><b>不連續上場超過 2 場</b>：打完兩場盡量排休息。</li>
+    <li><b>不連續休息超過 2 場</b>：休息兩場後盡量排上場。</li>
     <li><b>場數平均</b>：每個人打的場數盡量一樣。</li>
   </ul>
   <p class="small">※ 只有 4–5 人時，每場能休息的人太少，無法完全做到「不連續上場超過 2 場」，會盡量平均分配。</p>
@@ -318,7 +344,7 @@ const RULES = `
     <li>每打完一場，按「✓ 這場打完了」，就會進到下一場；按錯可以按「↶ 復原」。</li>
     <li>有人中途加入，在上方輸入名字按「＋ 加入」；有人要走，按名字旁的 ✕。正在打的這場不變，後面的場次會自動重新安排。</li>
     <li>每開一顆新球，按「用球數」的 ＋。</li>
-    <li>打完按最下面的「🏁 比賽結束」，自動算出每人費用：(${COURT_FEE} + ${BALL_FEE} × 用球數) ÷ 人頭。人頭預設是今天名單上所有人（含中途離開的），可以再調整。</li>
+    <li>打完按最下面的「🏁 比賽結束」，自動算出每人費用：(場地費 + 每顆球價 × 用球數) ÷ 人頭。人頭預設是今天名單上所有人（含中途離開的），可以再調整；場地費和球價也可以在結算畫面修改，下次會沿用。</li>
     <li>資料存在這支手機的瀏覽器裡，重新整理也不會不見。</li>
   </ol>`;
 
@@ -328,7 +354,7 @@ function render() {
   if (!S.players.length) {
     app.innerHTML = `
       <h1>🏸 羽球分組表</h1>
-      <p class="intro">雙打輪替排場小幫手（一面場地，4–8 人）。貼上名單，自動排好每一場誰跟誰打、誰休息，讓大家公平輪流上場。</p>
+      <p class="intro">雙打輪替排場小幫手（一面場地，4–12 人）。貼上名單，自動排好每一場誰跟誰打、誰休息，讓大家公平輪流上場。</p>
       <p class="sub">貼上選手名單，一行一位，前面的「1.」編號會自動去掉</p>
       <textarea id="names" placeholder="1. felix&#10;2. Emily&#10;3. Mango&#10;4. Andy"></textarea>
       <div style="height:12px"></div>
@@ -347,11 +373,15 @@ function render() {
       <h1>🏁 今日結算</h1>
       <p class="sub">共打了 ${S.history.length} 場</p>
       <div class="counter"><span class="label">用球數</span>
-        <button onclick="changeBalls(-1)">−</button><span class="num">${x}</span><button onclick="changeBalls(1)">＋</button></div>
+        <button aria-label="用球數減一" onclick="changeBalls(-1)">−</button><span class="num">${x}</span><button aria-label="用球數加一" onclick="changeBalls(1)">＋</button></div>
       <div class="counter"><span class="label">人頭</span>
-        <button onclick="changeHeads(-1)">−</button><span class="num">${y}</span><button onclick="changeHeads(1)">＋</button></div>
+        <button aria-label="人頭減一" onclick="changeHeads(-1)">−</button><span class="num">${y}</span><button aria-label="人頭加一" onclick="changeHeads(1)">＋</button></div>
+      <div class="fees">
+        <label>場地費<input type="number" inputmode="numeric" min="0" value="${FEES.court}" onchange="setFee('court', this.value)"></label>
+        <label>每顆球<input type="number" inputmode="numeric" min="0" value="${FEES.ball}" onchange="setFee('ball', this.value)"></label>
+      </div>
       <div class="total">
-        <div class="formula">(${COURT_FEE} + ${BALL_FEE} × ${x}) ÷ ${y}${Number.isInteger(each) ? '' : ' = ' + each.toFixed(1)}</div>
+        <div class="formula">(${FEES.court} + ${FEES.ball} × ${x}) ÷ ${y}${Number.isInteger(each) ? '' : ' = ' + each.toFixed(1)}</div>
         <div class="money">每人 ${Math.ceil(each)} 元</div>
         ${Number.isInteger(each) ? '' : '<div class="small">（小數無條件進位）</div>'}
       </div>
@@ -403,7 +433,7 @@ function render() {
     </div>
     ${notes}
     <div class="counter"><span class="label">用球數</span>
-      <button onclick="changeBalls(-1)">−</button><span class="num">${S.balls || 0}</span><button onclick="changeBalls(1)">＋</button></div>
+      <button aria-label="用球數減一" onclick="changeBalls(-1)">−</button><span class="num">${S.balls || 0}</span><button aria-label="用球數加一" onclick="changeBalls(1)">＋</button></div>
     ${cards}
     <button class="primary big" style="margin-top:20px" onclick="endSession()">🏁 比賽結束</button>
     <div class="tools">
