@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>羽球分組表</title>
 <style>
-:root{--bg:#f5f6f2;--card:#fff;--ink:#1c2220;--muted:#66706b;--line:#dce1dc;--accent:#1f7a4d;--accent-ink:#fff;--now:#e6f4eb;--a:#1d5ea8;--b:#b4432a;--warn:#9a5800;--danger:#b3261e}
-@media (prefers-color-scheme:dark){:root{--bg:#121514;--card:#1c201f;--ink:#eef2ef;--muted:#9aa49f;--line:#333a37;--accent:#43b37a;--accent-ink:#06130c;--now:#183024;--a:#86b8f0;--b:#f2977f;--warn:#f0b35a;--danger:#ff8a80}}
+:root{--bg:#f5f6f2;--card:#fff;--ink:#1c2220;--muted:#66706b;--line:#dce1dc;--accent:#1f7a4d;--accent-ink:#fff;--now:#e6f4eb;--a:#1d5ea8;--b:#b4432a;--warn:#9a5800;--danger:#b3261e;--red:#c0362c;--red-ink:#fff;--now-red:#fdecea}
+@media (prefers-color-scheme:dark){:root{--bg:#121514;--card:#1c201f;--ink:#eef2ef;--muted:#9aa49f;--line:#333a37;--accent:#43b37a;--accent-ink:#06130c;--now:#183024;--a:#86b8f0;--b:#f2977f;--warn:#f0b35a;--danger:#ff8a80;--red:#ef6b5f;--red-ink:#1f0806;--now-red:#3a1c1b}}
 *{box-sizing:border-box}
 html{font-size:20px}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;line-height:1.4}
@@ -32,8 +32,19 @@ textarea{min-height:9em}
 .match.now .mh .no{color:var(--accent-ink);font-size:1.5rem}
 .match.next{border-style:dashed;background:transparent}
 .match.next .team{font-size:1.3rem}
+/* 奇數場綠色、偶數場紅色，一眼看出有沒有按錯 */
+.match{--theme:var(--accent);--theme-ink:var(--accent-ink);--theme-bg:var(--now)}
+.match.even{--theme:var(--red);--theme-ink:var(--red-ink);--theme-bg:var(--now-red)}
+.match.now{background:var(--theme-bg);border-color:var(--theme)}
+.match.now .mh{background:var(--theme);color:var(--theme-ink)}
+.match.now .mh .no{color:var(--theme-ink)}
+.match.now .tag{background:var(--theme-ink);color:var(--theme)}
+.match.now button.primary{background:var(--theme);border-color:var(--theme);color:var(--theme-ink)}
+.match.next{border-color:var(--theme)}
+.match.next .mh span:first-child{color:var(--theme);font-weight:700}
+.lastdone.even b{color:var(--red)}
 .match.flash{animation:flash .9s ease-out}
-@keyframes flash{0%{transform:scale(.97);box-shadow:0 0 0 8px var(--accent)}100%{transform:none;box-shadow:0 0 0 0 transparent}}
+@keyframes flash{0%{transform:scale(.97);box-shadow:0 0 0 8px var(--theme)}100%{transform:none;box-shadow:0 0 0 0 transparent}}
 .lastdone{display:flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);border-radius:16px;padding:8px 8px 8px 14px;margin:12px 0;color:var(--muted)}
 .lastdone .txt{flex:1;min-width:0;font-size:1rem}
 .lastdone b{color:var(--accent)}
@@ -126,6 +137,12 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 function baseState() {
   const st = { games: {}, play: {}, rest: {}, partner: {}, opp: {}, last: null };
   for (const p of S.players) { st.games[p.id] = p.base || 0; st.play[p.id] = 0; st.rest[p.id] = 0; }
+  // 中途加入的人，搭檔／對手次數從大家的平均起算，不然跟他搭都算「新組合」，會一直被排上場
+  for (const x of S.players) for (const y of S.players) if (x.id < y.id) {
+    const sp = Math.max(x.pbase || 0, y.pbase || 0), so = Math.max(x.obase || 0, y.obase || 0);
+    if (sp) st.partner[pk(x.id, y.id)] = sp;
+    if (so) st.opp[pk(x.id, y.id)] = so;
+  }
   for (const h of S.history) apply(st, h, h.present);
   return st;
 }
@@ -267,16 +284,31 @@ function addPlayer() {
   if (!names.length) return;
   const st = baseState();
   const ids = activeIds();
-  // 新加入的人以目前最少場數起算，避免一進來就被連排
-  const base = ids.length ? Math.min(...ids.map(id => st.games[id])) : 0;
+  // 新加入的人以目前的平均場數（四捨五入）起算，跟大家一樣正常輪替，不會為了追場數一直被排上場
+  const base = ids.length ? Math.round(ids.reduce((s, id) => s + st.games[id], 0) / ids.length) : 0;
+  // 目前在場的人之間，平均搭檔／對手過幾次
+  const pairAvg = o => {
+    let sum = 0, cnt = 0;
+    for (const x of ids) for (const y of ids) if (x < y) { sum += o[pk(x, y)] || 0; cnt++; }
+    return cnt ? sum / cnt : 0;
+  };
+  const pbase = Math.round(pairAvg(st.partner)), obase = Math.round(pairAvg(st.opp));
   let changed = false;
   for (const n of names) {
     if (S.players.some(p => p.active && p.name === n)) { alert(n + ' 已經在名單裡了'); continue; }
     if (activeIds().length >= MAX_PLAYERS) { alert('最多 ' + MAX_PLAYERS + ' 位選手'); break; }
-    // 退出後再回來的人沿用原本的紀錄（場數、搭檔），場數一樣補到目前最少場數
+    // 退出後再回來的人沿用原本的紀錄（場數、搭檔），不足的部分一樣補到大家的平均
     const back = S.players.find(p => !p.active && p.name === n);
-    if (back) { back.active = true; back.base = (back.base || 0) + Math.max(0, base - st.games[back.id]); }
-    else { S.players.push({ id: S.nextId++, name: n, active: true, base }); delete S.heads; } // 新名字加入，人頭回到預設
+    if (back) {
+      const mine = o => {
+        let sum = 0; for (const x of ids) sum += o[pk(x, back.id)] || 0; return ids.length ? sum / ids.length : 0;
+      };
+      back.active = true;
+      back.base = (back.base || 0) + Math.max(0, base - st.games[back.id]);
+      back.pbase = (back.pbase || 0) + Math.max(0, Math.round(pbase - mine(st.partner)));
+      back.obase = (back.obase || 0) + Math.max(0, Math.round(obase - mine(st.opp)));
+    }
+    else { S.players.push({ id: S.nextId++, name: n, active: true, base, pbase, obase }); delete S.heads; } // 新名字加入，人頭回到預設
     changed = true;
   }
   if (!changed) return; // 都是重複的名字，不要打亂後面的場次
@@ -428,7 +460,7 @@ function render() {
     const rest = ids.filter(id => !on.has(id)).map(nameOf).map(esc).join('、');
     const now = i === 0;
     return `
-      <div class="match ${now ? 'now' : 'next'}${now && flash ? ' flash' : ''}">
+      <div class="match ${now ? 'now' : 'next'} ${(done + i + 1) % 2 ? 'odd' : 'even'}${now && flash ? ' flash' : ''}">
         <div class="mh">${now
           ? `<span class="no">▶ 第 ${done + 1} 場</span><span class="tag">進行中</span>`
           : `<span>下一場 · 第 ${done + 2} 場</span><span>準備</span>`}</div>
@@ -446,7 +478,7 @@ function render() {
   // 剛打完的那場縮小顯示，一眼看出已經按過「這場打完了」
   const last = S.history[done - 1];
   const lastRow = last ? `
-    <div class="lastdone">
+    <div class="lastdone ${done % 2 ? 'odd' : 'even'}">
       <span class="txt"><b>✓ 第 ${done} 場已結束</b><br>${last.a.map(nameOf).map(esc).join('、')} vs ${last.b.map(nameOf).map(esc).join('、')}</span>
       <button onclick="undo()">↶ 復原</button>
     </div>` : '';
