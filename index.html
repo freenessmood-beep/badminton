@@ -173,7 +173,8 @@ function plan(fixed) {
 
 function parseNames(text) {
   const seen = new Set();
-  const numbered = /^\s*\d+\s*(?:[.、)）:：]\s*|\s+)/;
+  // 編號後面不能直接接數字，避免把「10.12」「8:00」這種日期、時間標題當成編號
+  const numbered = /^\s*\d+\s*(?:[.、)）:：]\s*|\s+)(?!\d)/;
   let lines = text.split(/[\n\r]+/);
   // 接龍格式：只要有編號的行，就忽略沒編號的標題／備註
   if (lines.some(l => numbered.test(l))) lines = lines.filter(l => numbered.test(l));
@@ -208,8 +209,11 @@ function finishMatch() {
 }
 
 function undo() {
-  const h = S.history.pop();
+  const h = S.history[S.history.length - 1];
   if (!h) return;
+  // 復原的這場要能重新排進去，否則會直接消失
+  if (activeIds().length < 4 || !validFor(h, activeIds())) return alert('上一場有人已經退出，無法復原');
+  S.history.pop();
   S.upcoming = plan([{ a: h.a, b: h.b }]);
   commit();
 }
@@ -225,7 +229,10 @@ function addPlayer() {
   for (const n of names) {
     if (S.players.some(p => p.active && p.name === n)) { alert(n + ' 已經在名單裡了'); continue; }
     if (activeIds().length >= MAX_PLAYERS) { alert('最多 ' + MAX_PLAYERS + ' 位選手'); break; }
-    S.players.push({ id: S.nextId++, name: n, active: true, base });
+    // 退出後再回來的人沿用原本的紀錄（場數、搭檔），場數一樣補到目前最少場數
+    const back = S.players.find(p => !p.active && p.name === n);
+    if (back) { back.active = true; back.base = (back.base || 0) + Math.max(0, base - st.games[back.id]); }
+    else S.players.push({ id: S.nextId++, name: n, active: true, base });
   }
   replanKeepingCurrent();
   commit();
@@ -398,7 +405,6 @@ function render() {
     <div class="counter"><span class="label">用球數</span>
       <button onclick="changeBalls(-1)">−</button><span class="num">${S.balls || 0}</span><button onclick="changeBalls(1)">＋</button></div>
     ${cards}
-    ${!S.upcoming.length && done ? '<button onclick="undo()">↶ 復原上一場</button>' : ''}
     <button class="primary big" style="margin-top:20px" onclick="endSession()">🏁 比賽結束</button>
     <div class="tools">
       <button onclick="reshuffle()">🔀 重新排列</button>
