@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>羽球分組表</title>
 <style>
-:root{--bg:#f5f6f2;--card:#fff;--ink:#1c2220;--muted:#66706b;--line:#dce1dc;--accent:#1f7a4d;--accent-ink:#fff;--now:#e6f4eb;--a:#1d5ea8;--b:#b4432a;--warn:#9a5800;--danger:#b3261e;--red:#c0362c;--red-ink:#fff;--now-red:#fdecea}
-@media (prefers-color-scheme:dark){:root{--bg:#121514;--card:#1c201f;--ink:#eef2ef;--muted:#9aa49f;--line:#333a37;--accent:#43b37a;--accent-ink:#06130c;--now:#183024;--a:#86b8f0;--b:#f2977f;--warn:#f0b35a;--danger:#ff8a80;--red:#ef6b5f;--red-ink:#1f0806;--now-red:#3a1c1b}}
+:root{--bg:#f5f6f2;--card:#fff;--ink:#1c2220;--muted:#66706b;--line:#dce1dc;--accent:#1f7a4d;--accent-ink:#fff;--now:#e6f4eb;--a:#1d5ea8;--b:#b4432a;--warn:#9a5800;--danger:#b3261e;--blue:#1a5fb4;--blue-ink:#fff;--now-blue:#e6effa;--purple:#7a3db8;--purple-ink:#fff;--now-purple:#f2eafa}
+@media (prefers-color-scheme:dark){:root{--bg:#121514;--card:#1c201f;--ink:#eef2ef;--muted:#9aa49f;--line:#333a37;--accent:#43b37a;--accent-ink:#06130c;--now:#183024;--a:#86b8f0;--b:#f2977f;--warn:#f0b35a;--danger:#ff8a80;--blue:#6aa9f0;--blue-ink:#06121f;--now-blue:#15243a;--purple:#b48ae8;--purple-ink:#160a22;--now-purple:#281c3a}}
 *{box-sizing:border-box}
 html{font-size:20px}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;line-height:1.4}
@@ -32,17 +32,18 @@ textarea{min-height:9em}
 .match.now .mh .no{color:var(--accent-ink);font-size:1.5rem}
 .match.next{border-style:dashed;background:transparent}
 .match.next .team{font-size:1.3rem}
-/* 奇數場綠色、偶數場紅色，一眼看出有沒有按錯 */
-.match{--theme:var(--accent);--theme-ink:var(--accent-ink);--theme-bg:var(--now)}
-.match.even{--theme:var(--red);--theme-ink:var(--red-ink);--theme-bg:var(--now-red)}
+/* 進行中：奇數場藍色、偶數場紫色，一眼看出有沒有按錯（綠色只留給「已結束」） */
+.match{--theme:var(--blue);--theme-ink:var(--blue-ink);--theme-bg:var(--now-blue)}
+.match.even{--theme:var(--purple);--theme-ink:var(--purple-ink);--theme-bg:var(--now-purple)}
 .match.now{background:var(--theme-bg);border-color:var(--theme)}
 .match.now .mh{background:var(--theme);color:var(--theme-ink)}
 .match.now .mh .no{color:var(--theme-ink)}
 .match.now .tag{background:var(--theme-ink);color:var(--theme)}
 .match.now button.primary{background:var(--theme);border-color:var(--theme);color:var(--theme-ink)}
-.match.next{border-color:var(--theme)}
-.match.next .mh span:first-child{color:var(--theme);font-weight:700}
-.lastdone.even b{color:var(--red)}
+/* 下一場全部反灰，避免誤以為正在進行 */
+.match.next{border-color:var(--muted)}
+.match.next .mh span:first-child{font-weight:700}
+.match.next .ta,.match.next .tb{color:var(--muted)}
 .match.flash{animation:flash .9s ease-out}
 @keyframes flash{0%{transform:scale(.97);box-shadow:0 0 0 8px var(--theme)}100%{transform:none;box-shadow:0 0 0 0 transparent}}
 .lastdone{display:flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);border-radius:16px;padding:8px 8px 8px 14px;margin:12px 0;color:var(--muted)}
